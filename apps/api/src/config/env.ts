@@ -21,6 +21,7 @@ export const env = {
   sessionSecret,
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  googleMobileClientIds: (process.env.GOOGLE_MOBILE_CLIENT_IDS ?? '').split(',').map((clientId) => clientId.trim()).filter(Boolean),
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY,
   paystackPublicKey: process.env.PAYSTACK_PUBLIC_KEY,
   mailgunApiKey: process.env.MAILGUN_API_KEY,

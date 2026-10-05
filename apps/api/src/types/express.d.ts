@@ -3,7 +3,12 @@ import 'express-session';
 
 declare global {
   namespace Express {
-    interface User extends UserDto {}
+    interface User extends UserDto {
+      id: UserDto['id'];
+      email: UserDto['email'];
+      name: UserDto['name'];
+      image: UserDto['image'];
+    }
   }
 }
 

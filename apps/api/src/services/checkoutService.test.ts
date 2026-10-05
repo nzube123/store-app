@@ -13,8 +13,10 @@ const mocks = vi.hoisted(() => ({
   verifyPayment: vi.fn(),
 }));
 
+import type * as DatabaseModule from '@shop/database';
+
 vi.mock('@shop/database', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@shop/database')>();
+  const actual = await importOriginal<typeof DatabaseModule>();
   return {
     ...actual,
     prisma: {

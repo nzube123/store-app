@@ -1,10 +1,54 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import type * as DatabaseModule from '@shop/database';
+import type * as AppEnvModule from './config/env.js';
 
-const db = vi.hoisted(() => ({ productFindMany: vi.fn(), productCount: vi.fn(), orderFindFirst: vi.fn() }));
+const db = vi.hoisted(() => ({
+  productFindMany: vi.fn(),
+  productCount: vi.fn(),
+  orderFindFirst: vi.fn(),
+  userFindUnique: vi.fn(),
+  userUpsert: vi.fn(),
+  oauthAccountFindUnique: vi.fn(),
+  oauthAccountCreate: vi.fn(),
+  sessionCreate: vi.fn(),
+  sessionFindUnique: vi.fn(),
+  orderFindMany: vi.fn(),
+}));
 vi.mock('@shop/database', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@shop/database')>();
-  return { ...actual, prisma: { product: { findMany: db.productFindMany, count: db.productCount }, order: { findFirst: db.orderFindFirst } } };
+  const actual = await importOriginal<typeof DatabaseModule>();
+  const user = { findUnique: db.userFindUnique, upsert: db.userUpsert };
+  const oAuthAccount = { findUnique: db.oauthAccountFindUnique, create: db.oauthAccountCreate };
+  const session = { create: db.sessionCreate, findUnique: db.sessionFindUnique };
+  return {
+    ...actual,
+    prisma: {
+      product: { findMany: db.productFindMany, count: db.productCount },
+      order: { findFirst: db.orderFindFirst, findMany: db.orderFindMany },
+      user,
+      oAuthAccount,
+      session,
+      $transaction: (callback: (transaction: { user: typeof user; oAuthAccount: typeof oAuthAccount }) => unknown) => callback({ user, oAuthAccount }),
+    },
+  };
+});
+
+const google = vi.hoisted(() => ({ verifyIdToken: vi.fn() }));
+vi.mock('google-auth-library', () => ({
+  OAuth2Client: class {
+    verifyIdToken = google.verifyIdToken;
+  },
+}));
+vi.mock('./config/env.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof AppEnvModule>();
+  return {
+    ...actual,
+    env: {
+      ...actual.env,
+      googleClientId: 'test-google-client-id',
+      googleMobileClientIds: ['test-mobile-client-id'],
+    },
+  };
 });
 
 import { Prisma } from '@shop/database';
@@ -15,6 +59,14 @@ beforeEach(() => {
   db.productFindMany.mockReset();
   db.productCount.mockReset();
   db.orderFindFirst.mockReset();
+  db.userFindUnique.mockReset();
+  db.userUpsert.mockReset();
+  db.oauthAccountFindUnique.mockReset();
+  db.oauthAccountCreate.mockReset();
+  db.sessionCreate.mockReset();
+  db.sessionFindUnique.mockReset();
+  db.orderFindMany.mockReset();
+  google.verifyIdToken.mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -50,6 +102,116 @@ describe('shop API routes', () => {
     const response = await request(app).get('/api/orders');
     expect(response.status).toBe(401);
     expect(response.body.error.code).toBe('UNAUTHENTICATED');
+  });
+
+  it('exchanges a verified Google credential for a mobile token and authenticates protected requests', async () => {
+    const user = { id: 'user-mobile', email: 'mobile@example.com', name: 'Mobile User', image: null };
+    db.oauthAccountFindUnique.mockResolvedValue(null);
+    db.userUpsert.mockResolvedValue(user);
+    db.oauthAccountCreate.mockResolvedValue({});
+    db.sessionCreate.mockResolvedValue({});
+    google.verifyIdToken.mockResolvedValue({
+      getPayload: () => ({
+        sub: 'google-mobile-1',
+        email: user.email,
+        email_verified: true,
+        name: user.name,
+      }),
+    });
+    db.sessionFindUnique.mockImplementation(async ({ where }) => (
+      where.sid ? { expiresAt: new Date(Date.now() + 60_000), user } : null
+    ));
+    db.orderFindMany.mockResolvedValue([]);
+
+    const login = await request(app)
+      .post('/api/auth/google/mobile')
+      .send({ credential: 'verified-google-id-token' });
+
+    expect(login.status).toBe(200);
+    expect(login.body.data.user).toEqual(user);
+    expect(login.body.data.accessToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(login.body.data.expiresAt).toBeDefined();
+    expect(db.sessionCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ userId: user.id, data: { type: 'mobile' } }),
+    }));
+    expect(google.verifyIdToken).toHaveBeenCalledWith({
+      idToken: 'verified-google-id-token',
+      audience: ['test-google-client-id', 'test-mobile-client-id'],
+    });
+
+    const protectedResponse = await request(app)
+      .get('/api/orders')
+      .set('Authorization', `Bearer ${login.body.data.accessToken}`);
+    expect(protectedResponse.status).toBe(200);
+  });
+
+  it('rejects invalid Google credentials without creating an account or token', async () => {
+    google.verifyIdToken.mockRejectedValue(new Error('Invalid token'));
+
+    const response = await request(app)
+      .post('/api/auth/google/mobile')
+      .send({ credential: 'expired-or-invalid' });
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe('INVALID_GOOGLE_CREDENTIAL');
+    expect(db.userUpsert).not.toHaveBeenCalled();
+    expect(db.sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('uses the existing linked Google account instead of creating a duplicate user', async () => {
+    const user = { id: 'user-existing', email: 'existing@example.com', name: 'Existing User', image: null };
+    db.oauthAccountFindUnique.mockResolvedValue({ user });
+    db.sessionCreate.mockResolvedValue({});
+    google.verifyIdToken.mockResolvedValue({
+      getPayload: () => ({
+        sub: 'google-existing',
+        email: user.email,
+        email_verified: true,
+        name: user.name,
+      }),
+    });
+
+    const response = await request(app)
+      .post('/api/auth/google/mobile')
+      .send({ credential: 'valid-existing-user-token' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.user).toEqual(user);
+    expect(db.userUpsert).not.toHaveBeenCalled();
+    expect(db.oauthAccountCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects expired mobile credentials on protected endpoints', async () => {
+    db.sessionFindUnique.mockResolvedValue({ expiresAt: new Date(Date.now() - 1), user: null });
+
+    const response = await request(app)
+      .get('/api/orders')
+      .set('Authorization', `Bearer ${'a'.repeat(43)}`);
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe('UNAUTHENTICATED');
+  });
+
+  it('rejects unverified Google email claims and client-supplied identity fields', async () => {
+    google.verifyIdToken.mockResolvedValue({
+      getPayload: () => ({
+        sub: 'google-unverified',
+        email: 'unverified@example.com',
+        email_verified: false,
+      }),
+    });
+
+    const unverified = await request(app)
+      .post('/api/auth/google/mobile')
+      .send({ credential: 'valid-signature-unverified-email' });
+    const clientIdentity = await request(app)
+      .post('/api/auth/google/mobile')
+      .send({ credential: 'valid-token', email: 'attacker@example.com', name: 'Attacker' });
+
+    expect(unverified.status).toBe(401);
+    expect(unverified.body.error.code).toBe('INVALID_GOOGLE_CREDENTIAL');
+    expect(clientIdentity.status).toBe(400);
+    expect(db.userUpsert).not.toHaveBeenCalled();
   });
 
   it('enforces order ownership by including the signed-in user in the database lookup', async () => {
