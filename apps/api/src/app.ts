@@ -16,7 +16,7 @@ export const app: Express = express();
 if (env.isProduction) app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(cors({ origin: env.frontendUrl, credentials: true, methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
+app.use(cors({ origin: [env.frontendUrl, ...env.corsOrigins], credentials: true, methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json({ limit: '32kb' }));
 app.use(session({
   name: 'cedar.sid',

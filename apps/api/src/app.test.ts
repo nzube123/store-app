@@ -33,6 +33,19 @@ describe('shop API routes', () => {
     expect(response.body.data.pagination).toMatchObject({ page: 1, total: 1, pages: 1 });
   });
 
+  it('allows the deployed frontend origin and rejects unlisted origins', async () => {
+    const allowedResponse = await request(app)
+      .get('/api/health')
+      .set('Origin', 'https://store-app-mauve-ten.vercel.app');
+    const rejectedResponse = await request(app)
+      .get('/api/health')
+      .set('Origin', 'https://unlisted.example');
+
+    expect(allowedResponse.headers['access-control-allow-origin']).toBe('https://store-app-mauve-ten.vercel.app');
+    expect(allowedResponse.headers['access-control-allow-credentials']).toBe('true');
+    expect(rejectedResponse.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
   it('protects private order routes with authentication', async () => {
     const response = await request(app).get('/api/orders');
     expect(response.status).toBe(401);
