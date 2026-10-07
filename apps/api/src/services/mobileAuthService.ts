@@ -13,7 +13,7 @@ function hashMobileToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export async function authenticateGoogleMobile(credential: string) {
+export async function authenticateGoogleMobile(idToken: string) {
   const audiences = [env.googleClientId, ...env.googleMobileClientIds]
     .filter((clientId): clientId is string => Boolean(clientId));
   if (audiences.length === 0) {
@@ -22,7 +22,7 @@ export async function authenticateGoogleMobile(credential: string) {
 
   let payload;
   try {
-    const ticket = await googleAuthClient.verifyIdToken({ idToken: credential, audience: audiences });
+    const ticket = await googleAuthClient.verifyIdToken({ idToken, audience: audiences });
     payload = ticket.getPayload();
   } catch {
     throw new AppError('The Google credential is invalid or expired.', 401, 'INVALID_GOOGLE_CREDENTIAL');

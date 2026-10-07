@@ -8,7 +8,7 @@ import { authenticateGoogleMobile } from '../services/mobileAuthService.js';
 import { z } from 'zod';
 
 const mobileGoogleAuthSchema = z.object({
-  credential: z.string().min(1).max(8192),
+  idToken: z.string().min(1).max(8192),
 }).strict();
 
 export const authStatusController: RequestHandler = (request, response) => {
@@ -32,8 +32,8 @@ export const googleLoginController: RequestHandler = (request, response, next) =
 };
 
 export const googleMobileAuthController: RequestHandler = asyncHandler(async (request, response) => {
-  const { credential } = mobileGoogleAuthSchema.parse(request.body);
-  response.json({ data: await authenticateGoogleMobile(credential) });
+  const { idToken } = mobileGoogleAuthSchema.parse(request.body);
+  response.json({ data: await authenticateGoogleMobile(idToken) });
 });
 
 export const googleCallbackController: RequestHandler = (request, response, next) => {

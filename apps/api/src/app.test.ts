@@ -104,7 +104,7 @@ describe('shop API routes', () => {
     expect(response.body.error.code).toBe('UNAUTHENTICATED');
   });
 
-  it('exchanges a verified Google credential for a mobile token and authenticates protected requests', async () => {
+  it('exchanges a verified Google ID token for a mobile token and authenticates protected requests', async () => {
     const user = { id: 'user-mobile', email: 'mobile@example.com', name: 'Mobile User', image: null };
     db.oauthAccountFindUnique.mockResolvedValue(null);
     db.userUpsert.mockResolvedValue(user);
@@ -125,12 +125,19 @@ describe('shop API routes', () => {
 
     const login = await request(app)
       .post('/api/auth/google/mobile')
-      .send({ credential: 'verified-google-id-token' });
+      .send({ idToken: 'verified-google-id-token' });
 
     expect(login.status).toBe(200);
     expect(login.body.data.user).toEqual(user);
     expect(login.body.data.accessToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(login.body.data.expiresAt).toBeDefined();
+    expect(db.userUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { email: user.email },
+      create: { email: user.email, name: user.name, image: null },
+    }));
+    expect(db.oauthAccountCreate).toHaveBeenCalledWith({
+      data: { provider: 'google', providerAccountId: 'google-mobile-1', userId: user.id },
+    });
     expect(db.sessionCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ userId: user.id, data: { type: 'mobile' } }),
     }));
@@ -145,17 +152,31 @@ describe('shop API routes', () => {
     expect(protectedResponse.status).toBe(200);
   });
 
-  it('rejects invalid Google credentials without creating an account or token', async () => {
-    google.verifyIdToken.mockRejectedValue(new Error('Invalid token'));
+  it.each([
+    ['invalid', new Error('Invalid token')],
+    ['expired', new Error('Token used too late')],
+    ['wrong audience', new Error('Wrong recipient, payload audience does not match')],
+  ])('rejects a %s Google ID token without creating an account or token', async (_reason, error) => {
+    google.verifyIdToken.mockRejectedValue(error);
 
     const response = await request(app)
       .post('/api/auth/google/mobile')
-      .send({ credential: 'expired-or-invalid' });
+      .send({ idToken: 'invalid-google-id-token' });
 
     expect(response.status).toBe(401);
     expect(response.body.error.code).toBe('INVALID_GOOGLE_CREDENTIAL');
     expect(db.userUpsert).not.toHaveBeenCalled();
     expect(db.sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('requires an ID token in the mobile Google authentication request', async () => {
+    const response = await request(app)
+      .post('/api/auth/google/mobile')
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(google.verifyIdToken).not.toHaveBeenCalled();
   });
 
   it('uses the existing linked Google account instead of creating a duplicate user', async () => {
@@ -173,12 +194,41 @@ describe('shop API routes', () => {
 
     const response = await request(app)
       .post('/api/auth/google/mobile')
-      .send({ credential: 'valid-existing-user-token' });
+      .send({ idToken: 'valid-existing-user-token' });
 
     expect(response.status).toBe(200);
     expect(response.body.data.user).toEqual(user);
     expect(db.userUpsert).not.toHaveBeenCalled();
     expect(db.oauthAccountCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns the already-linked user when concurrent Google account creation hits a unique constraint', async () => {
+    const user = { id: 'user-existing', email: 'existing@example.com', name: 'Existing User', image: null };
+    db.oauthAccountFindUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ user });
+    db.userUpsert.mockResolvedValue(user);
+    db.oauthAccountCreate.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed',
+      { code: 'P2002', clientVersion: 'test' },
+    ));
+    db.sessionCreate.mockResolvedValue({});
+    google.verifyIdToken.mockResolvedValue({
+      getPayload: () => ({
+        sub: 'google-existing',
+        email: user.email,
+        email_verified: true,
+        name: user.name,
+      }),
+    });
+
+    const response = await request(app)
+      .post('/api/auth/google/mobile')
+      .send({ idToken: 'valid-concurrent-user-token' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.user).toEqual(user);
+    expect(db.oauthAccountFindUnique).toHaveBeenCalledTimes(2);
   });
 
   it('rejects expired mobile credentials on protected endpoints', async () => {
@@ -203,10 +253,10 @@ describe('shop API routes', () => {
 
     const unverified = await request(app)
       .post('/api/auth/google/mobile')
-      .send({ credential: 'valid-signature-unverified-email' });
+      .send({ idToken: 'valid-signature-unverified-email' });
     const clientIdentity = await request(app)
       .post('/api/auth/google/mobile')
-      .send({ credential: 'valid-token', email: 'attacker@example.com', name: 'Attacker' });
+      .send({ idToken: 'valid-token', email: 'attacker@example.com', name: 'Attacker' });
 
     expect(unverified.status).toBe(401);
     expect(unverified.body.error.code).toBe('INVALID_GOOGLE_CREDENTIAL');
