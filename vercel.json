@@ -1,25 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "api": {
-      "root": "apps/api",
-      "framework": "express",
-      "entrypoint": "src/app.ts",
-      "buildCommand": "pnpm --filter @shop/shared build && pnpm --filter @shop/database db:generate && pnpm --filter @shop/database build && pnpm --filter @shop/api build"
-    },
     "web": {
       "root": "apps/web",
       "framework": "vite",
-      "buildCommand": "pnpm --filter @shop/shared build && pnpm --filter @shop/web build"
+      "buildCommand": "pnpm --filter @shop/shared build && VITE_API_URL=https://store-app-exqx.onrender.com pnpm --filter @shop/web build"
     }
   },
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": {
-        "service": "api"
-      }
-    },
     {
       "source": "/(.*)",
       "destination": {
