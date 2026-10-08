@@ -1,4 +1,8 @@
-const API_URL = '/api';
+const apiUrlOverride = import.meta.env.VITE_API_URL;
+const configuredApiUrl = (apiUrlOverride && !apiUrlOverride.startsWith('/')
+  ? apiUrlOverride
+  : 'https://store-app-exqx.onrender.com').replace(/\/+$/, '');
+const API_URL = configuredApiUrl.endsWith('/api') ? configuredApiUrl : `${configuredApiUrl}/api`;
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
