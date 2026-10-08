@@ -42,3 +42,5 @@ app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 180, standardHeader
 app.use('/api', apiRouter);
 app.use('/api', (_request, _response, next) => next(new AppError('This API endpoint does not exist.', 404, 'NOT_FOUND')));
 app.use(errorHandler);
+
+export default app;
