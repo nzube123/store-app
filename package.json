@@ -1,0 +1,22 @@
+{
+  "name": "cedar-and-loom-shop",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @shop/api --filter @shop/web dev",
+    "build": "pnpm --filter @shop/shared build && pnpm --filter @shop/database db:generate && pnpm --filter @shop/database build && pnpm --filter @shop/api build && pnpm --filter @shop/web build",
+    "typecheck": "pnpm --filter @shop/shared build && pnpm --filter @shop/database db:generate && pnpm --filter @shop/database build && pnpm --filter @shop/database typecheck && pnpm --filter @shop/api typecheck && pnpm --filter @shop/web typecheck",
+    "lint": "pnpm --filter @shop/shared lint && pnpm --filter @shop/database lint && pnpm --filter @shop/api lint && pnpm --filter @shop/web lint",
+    "test": "pnpm --filter @shop/shared build && pnpm --filter @shop/database db:generate && pnpm --filter @shop/database build && pnpm --filter @shop/api test && pnpm --filter @shop/web test",
+    "db:generate": "pnpm --filter @shop/database db:generate",
+    "db:migrate": "pnpm --filter @shop/database db:migrate",
+    "db:seed": "pnpm --filter @shop/database db:seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "eslint": "^9.20.0",
+    "typescript": "~5.7.3",
+    "typescript-eslint": "^8.24.0",
+    "globals": "^15.14.0"
+  }
+}
