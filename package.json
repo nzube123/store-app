@@ -4,6 +4,7 @@
   "packageManager": "pnpm@9.15.4",
   "scripts": {
     "dev": "pnpm --parallel --filter @shop/api --filter @shop/web dev",
+    "api:start": "pnpm --filter @shop/api start",
     "build": "pnpm --filter @shop/shared build && pnpm --filter @shop/database db:generate && pnpm --filter @shop/database build && pnpm --filter @shop/api build && pnpm --filter @shop/web build",
     "typecheck": "pnpm --filter @shop/shared build && pnpm --filter @shop/database db:generate && pnpm --filter @shop/database build && pnpm --filter @shop/database typecheck && pnpm --filter @shop/api typecheck && pnpm --filter @shop/web typecheck",
     "lint": "pnpm --filter @shop/shared lint && pnpm --filter @shop/database lint && pnpm --filter @shop/api lint && pnpm --filter @shop/web lint",
